@@ -2,6 +2,8 @@ package framework.project2;
 
 import org.antlr.v4.runtime.DefaultErrorStrategy;
 import org.antlr.v4.runtime.Parser;
+import org.antlr.v4.runtime.Token;
+import org.antlr.v4.runtime.misc.IntervalSet;
 
 /**
  * Project 2 TODO.
@@ -29,14 +31,15 @@ public final class Project2ErrorStrategy extends DefaultErrorStrategy {
 
         beginErrorCondition(recognizer);
 
-        /*
-         * TODO:
-         * Report the missing symbol through ErrorReporter.
-         *
-         * You need to determine:
-         * 1. which token is missing;
-         * 2. which line should be reported.
-         */
+        IntervalSet expecting = getExpectedTokens(recognizer);
+        Token current = recognizer.getCurrentToken();
+
+        // The specified malformed inputs have one expected token at each
+        // insertion point.  getMinElement() gives that symbolic token type
+        // without parsing ANTLR's human-readable error message.
+        reporter.reportMissing(
+                expecting.getMinElement(),
+                Math.max(0, current.getLine() - 1));
     }
 
     @Override
@@ -47,13 +50,9 @@ public final class Project2ErrorStrategy extends DefaultErrorStrategy {
 
         beginErrorCondition(recognizer);
 
-        /*
-         * TODO:
-         * Report the extraneous symbol through ErrorReporter.
-         *
-         * You need to determine:
-         * 1. which token is extraneous;
-         * 2. which line should be reported.
-         */
+        Token current = recognizer.getCurrentToken();
+        reporter.reportExtraneous(
+                current.getType(),
+                Math.max(0, current.getLine() - 1));
     }
 }
