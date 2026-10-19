@@ -28,65 +28,97 @@ public class ConstExprVisitor extends SplcBaseVisitor<Integer> {
             return null;
         }
 
-        Integer value = evaluate(ctx.expression());
-        if (value != null) {
-            addResult(ctx.expression().getText(), value);
+        SplcParser.ExpressionContext initializer = ctx.expression();
+        if (isConstExpr(initializer)) {
+            int value = evaluate(initializer);
+            addResult(initializer.getText(), value);
         }
         return null;
     }
 
     /**
-     * Evaluate exactly the constexpr forms defined by Project 2.
-     * A null result means that the expression is not a constexpr.
+     * Check whether an expression is a constexpr according to Project 2.
+     * This method only checks the expression form; it does not calculate a
+     * value.  Keeping the check separate makes it clear that a non-constexpr
+     * initializer is never partially recorded.
      */
-    private Integer evaluate(SplcParser.ExpressionContext ctx) {
+    private boolean isConstExpr(SplcParser.ExpressionContext ctx) {
+        if (ctx.Number() != null) {
+            return true;
+        }
+
+        // A direct identifier may be a variable, a function name, or a member
+        // name.  None of these expression forms is a constexpr.
+        if (ctx.Identifier() != null) {
+            return false;
+        }
+
+        // Parentheses do not change whether the enclosed expression is a
+        // constexpr.  A function call also has LPAREN, so argumentList must be
+        // checked before treating this as a parenthesized expression.
+        if (ctx.LPAREN() != null && ctx.argumentList() == null) {
+            return isConstExpr(ctx.expression(0));
+        }
+
+        int expressionCount = ctx.expression().size();
+
+        // The only allowed unary operators are unary plus and unary minus.
+        if (expressionCount == 1) {
+            if (ctx.PLUS() != null) {
+                return isConstExpr(ctx.expression(0));
+            }
+            if (ctx.MINUS() != null) {
+                return isConstExpr(ctx.expression(0));
+            }
+
+            // Logical NOT and other one-child forms are not constexpr.
+            return false;
+        }
+
+        // Only the five arithmetic binary operators are allowed.  This
+        // intentionally rejects indexing, member access, power, comparison,
+        // logical, and assignment expressions.
+        if (expressionCount == 2 && isArithmeticOperator(ctx)) {
+            return isConstExpr(ctx.expression(0))
+                    && isConstExpr(ctx.expression(1));
+        }
+
+        return false;
+    }
+
+    private boolean isArithmeticOperator(SplcParser.ExpressionContext ctx) {
+        return ctx.STAR() != null
+                || ctx.DIV() != null
+                || ctx.MOD() != null
+                || ctx.PLUS() != null
+                || ctx.MINUS() != null;
+    }
+
+    /**
+     * Evaluate an expression that has already been accepted by isConstExpr.
+     */
+    private int evaluate(SplcParser.ExpressionContext ctx) {
         if (ctx.Number() != null) {
             return Integer.parseInt(ctx.Number().getText());
         }
 
-        // Identifiers used as function names are not constexpr.  This check
-        // also rejects a bare identifier and keeps calls separate from the
-        // parenthesized-expression case below.  It must come first because a
-        // zero-argument call such as foo() has LPAREN but no argumentList.
-        if (ctx.Identifier() != null) {
-            return null;
-        }
-
-        // A parenthesized expression has one child expression and no operator.
         if (ctx.LPAREN() != null && ctx.argumentList() == null) {
             return evaluate(ctx.expression(0));
         }
 
         if (ctx.expression().size() == 1) {
+            int operand = evaluate(ctx.expression(0));
+
             if (ctx.PLUS() != null) {
-                return evaluate(ctx.expression(0));
+                return operand;
             }
             if (ctx.MINUS() != null) {
-                Integer operand = evaluate(ctx.expression(0));
-                return operand == null ? null : -operand;
+                return -operand;
             }
-
-            // NOT is deliberately not part of the constexpr definition.
-            return null;
         }
 
-        if (ctx.expression().size() != 2) {
-            return null;
-        }
-
-        // Only arithmetic binary operators are constexpr.  This also rejects
-        // indexing, member access, comparisons, logical operators, power, and
-        // assignment expressions.
-        if (ctx.STAR() == null && ctx.DIV() == null && ctx.MOD() == null
-                && ctx.PLUS() == null && ctx.MINUS() == null) {
-            return null;
-        }
-
-        Integer left = evaluate(ctx.expression(0));
-        Integer right = evaluate(ctx.expression(1));
-        if (left == null || right == null) {
-            return null;
-        }
+        int left = evaluate(ctx.expression(0));
+        int right = evaluate(ctx.expression(1));
 
         if (ctx.STAR() != null) {
             return left * right;
@@ -100,6 +132,12 @@ public class ConstExprVisitor extends SplcBaseVisitor<Integer> {
         if (ctx.PLUS() != null) {
             return left + right;
         }
-        return left - right;
+        if (ctx.MINUS() != null) {
+            return left - right;
+        }
+
+        // This should be unreachable because evaluate is called only after
+        // isConstExpr returned true.
+        throw new IllegalArgumentException("Not a constexpr expression");
     }
 }
